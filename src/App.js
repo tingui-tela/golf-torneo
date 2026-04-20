@@ -688,4 +688,3 @@ const statBox = {
 const statLabel = { fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#4a8a2a", marginBottom: 4 };
 const statVal = { fontSize: 17, fontWeight: "bold", color: "#e8d5a3" };
 
-export default GolfTorneo;
