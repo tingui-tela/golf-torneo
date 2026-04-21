@@ -10,6 +10,27 @@ const DEFAULT_PLAYERS = [
 const ROUNDS = [1, 2, 3, 4, 5, 6];
 const STORAGE_KEY = "golf_torneo_v4";
 
+// ─── Google Sheets sync (mismo GAS que live score) ────────────────
+const GAS_URL = "https://script.google.com/macros/s/AKfycbx8zgst5L8Pv66avrxJP_K03KNMo2akqYFufx3bfX3M2Vg8VJDNlNbxY_ZMb6MfzzZP/exec";
+
+const gasRead = async () => {
+  try {
+    const r = await fetch(GAS_URL, { redirect: "follow" });
+    return await r.json();
+  } catch { return {}; }
+};
+
+const gasWrite = async (key, value) => {
+  try {
+    await fetch(GAS_URL, {
+      method: "POST",
+      redirect: "follow",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ key, value }),
+    });
+  } catch {}
+};
+
 const POINTS_TABLE = [16, 14, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0];
 const POINTS_TABLE_DOUBLE = POINTS_TABLE.map(p => p * 2);
 
@@ -65,11 +86,48 @@ export default function GolfTorneo() {
   const [inputValues, setInputValues] = useState({});
   const [tournamentName, setTournamentName] = useState(saved?.tournamentName || "Torneo de Golf");
   const [editingTitle, setEditingTitle] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+  const [loadingData, setLoadingData] = useState(true);
   const [titleInput, setTitleInput] = useState("");
 
+  // ── Guardar en GAS + localStorage cada vez que cambia el estado ──
   useEffect(() => {
-    saveState({ players, scores, activeRound, tournamentName });
+    const data = { players, scores, activeRound, tournamentName };
+    saveState(data);
+    gasWrite(STORAGE_KEY, JSON.stringify(data));
   }, [players, scores, activeRound, tournamentName]);
+
+  // ── Cargar desde GAS al iniciar + poll cada 10 segundos ──────────
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const all = await gasRead();
+        if (all[STORAGE_KEY]) {
+          const d = JSON.parse(all[STORAGE_KEY]);
+          if (d.players) setPlayers(d.players);
+          if (d.scores) setScores(d.scores);
+          if (d.activeRound) setActiveRound(d.activeRound);
+          if (d.tournamentName) setTournamentName(d.tournamentName);
+        }
+      } catch {}
+      setLoadingData(false);
+    };
+    load();
+    const iv = setInterval(async () => {
+      try {
+        const all = await gasRead();
+        if (all[STORAGE_KEY]) {
+          const d = JSON.parse(all[STORAGE_KEY]);
+          if (d.scores) setScores(d.scores);
+          if (d.players) setPlayers(d.players);
+          if (d.tournamentName) setTournamentName(d.tournamentName);
+        }
+        setLastSync(new Date().toLocaleTimeString("es-AR"));
+      } catch {}
+    }, 10000);
+    return () => clearInterval(iv);
+  }, []);
 
   useEffect(() => {
     const init = {};
@@ -123,7 +181,7 @@ export default function GolfTorneo() {
   const getDayStats = (round) => {
     const played = players
       .map(p => ({ name: p, score: getRoundScore(p, round) }))
-      .filter(x => x.score !== null);
+      .filter(x => x.score !== null && x.score > 0);
     if (played.length === 0) return null;
     const sum = played.reduce((acc, x) => acc + x.score, 0);
     const avg = sum / played.length;
@@ -280,6 +338,13 @@ ${dayHeaders}
     return best;
   };
 
+  if (loadingData) return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1628 0%,#0f2744 40%,#0a1a0a 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,fontFamily:"Georgia,serif"}}>
+      <div style={{color:"#6ab832",fontSize:20}}>⛳ Cargando torneo...</div>
+      <div style={{color:"#4a7a3a",fontSize:12}}>Conectando con Google Sheets...</div>
+    </div>
+  );
+
   return (
     <div style={{
       minHeight: "100vh",
@@ -319,6 +384,11 @@ ${dayHeaders}
               <span style={{ fontSize: 11, color: "#6ab832", opacity: 0.7 }}>✎</span>
             </div>
           )}
+          {/* Indicador de sync */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#6ab832" }} />
+            <span style={{ fontSize: 10, color: "#6ab832" }}>{lastSync ? `Act. ${lastSync}` : "Conectado · Google Sheets"}</span>
+          </div>
           <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
             {["leaderboard", "cargar", "jugadores"].map(v => (
               <button key={v} onClick={() => setView(v)} style={{
