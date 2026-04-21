@@ -10,7 +10,6 @@ const DEFAULT_PLAYERS = [
 const ROUNDS = [1, 2, 3, 4, 5, 6];
 const STORAGE_KEY = "golf_torneo_v4";
 
-// Points table: index 0 = 1st place, index 1 = 2nd, etc.
 const POINTS_TABLE = [16, 14, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0];
 const POINTS_TABLE_DOUBLE = POINTS_TABLE.map(p => p * 2);
 
@@ -67,7 +66,6 @@ export default function GolfTorneo() {
   const [tournamentName, setTournamentName] = useState(saved?.tournamentName || "Torneo de Golf");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
-  const [dayView, setDayView] = useState("pts"); // "score" | "rank" | "pts"
 
   useEffect(() => {
     saveState({ players, scores, activeRound, tournamentName });
@@ -89,7 +87,6 @@ export default function GolfTorneo() {
     return v !== undefined && v !== "" ? Number(v) : null;
   };
 
-  // Returns 1-based rank of player in a given day (higher score = better rank)
   const getDayRank = (player, round) => {
     const sc = getRoundScore(player, round);
     if (sc === null) return null;
@@ -100,7 +97,6 @@ export default function GolfTorneo() {
     return allScores.indexOf(sc) + 1;
   };
 
-  // Points earned by a player in a given day — averaged across tied players
   const getDayPoints = (player, round) => {
     const sc = getRoundScore(player, round);
     if (sc === null) return null;
@@ -108,9 +104,8 @@ export default function GolfTorneo() {
       .map(p => getRoundScore(p, round))
       .filter(s => s !== null)
       .sort((a, b) => b - a);
-    const startRank = allScores.indexOf(sc) + 1; // first position with this score
+    const startRank = allScores.indexOf(sc) + 1;
     const tiedCount = allScores.filter(s => s === sc).length;
-    // Sum points for all tied positions, divide by number of tied players
     let totalPts = 0;
     for (let i = 0; i < tiedCount; i++) {
       totalPts += getPointsForRank(startRank + i, round);
@@ -118,12 +113,24 @@ export default function GolfTorneo() {
     return totalPts / tiedCount;
   };
 
-  // Total tournament points (sum of daily points)
   const getTotalPoints = (player) =>
     ROUNDS.reduce((sum, r) => {
       const pts = getDayPoints(player, r);
       return sum + (pts !== null ? pts : 0);
     }, 0);
+
+  // ── NUEVO: estadísticas de promedio del día ────────────────────────
+  const getDayStats = (round) => {
+    const played = players
+      .map(p => ({ name: p, score: getRoundScore(p, round) }))
+      .filter(x => x.score !== null);
+    if (played.length === 0) return null;
+    const sum = played.reduce((acc, x) => acc + x.score, 0);
+    const avg = sum / played.length;
+    const above = played.filter(x => x.score >= avg + 3).sort((a, b) => b.score - a.score);
+    const below = played.filter(x => x.score <= avg - 3).sort((a, b) => a.score - b.score);
+    return { avg, above, below, count: played.length };
+  };
 
   const leaderboard = [...players]
     .map(p => ({ name: p, total: getTotalPoints(p) }))
@@ -247,7 +254,6 @@ ${dayHeaders}
 <p class="footer">Puntos por posicion: 1=16, 2=14, 3=12, 4=11, 5=10, 6=9, 7=8, 8=7, 9=6, 10=5, 11=4, 12=3, 13=2, 14=1, 15-16=0 | Dia 6 x2</p>
 </body></html>`;
 
-    // Create downloadable HTML file
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -335,7 +341,6 @@ ${dayHeaders}
         {/* LEADERBOARD */}
         {view === "leaderboard" && (
           <div>
-            {/* Day selector */}
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#6ab832", letterSpacing: 2, textTransform: "uppercase", marginRight: 4 }}>Día activo:</span>
               {ROUNDS.map(r => (
@@ -351,7 +356,6 @@ ${dayHeaders}
               ))}
             </div>
 
-            {/* PDF Export button */}
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
               <button onClick={exportPDF} style={{
                 display: "flex", alignItems: "center", gap: 6,
@@ -366,7 +370,6 @@ ${dayHeaders}
               </button>
             </div>
 
-            {/* Stats */}
             <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
               <div style={statBox}>
                 <div style={statLabel}>Días jugados</div>
@@ -382,9 +385,7 @@ ${dayHeaders}
               </div>
             </div>
 
-            {/* Table — scrollable horizontally on small screens */}
             <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(106,184,50,0.2)", overflowX: "auto" }}>
-              {/* Header */}
               <div style={{
                 display: "grid",
                 gridTemplateColumns: "32px minmax(110px,1fr) 48px repeat(6, 34px 34px)",
@@ -430,11 +431,9 @@ ${dayHeaders}
                     <div style={{ fontSize: 15, color: isLeader ? "#f0f0d0" : "#d0c090", fontWeight: isLeader ? "bold" : "normal", paddingLeft: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {entry.name}
                     </div>
-                    {/* Total points */}
                     <div style={{ textAlign: "center", fontWeight: "bold", fontSize: 18, color: isLeader ? "#f0d060" : "#e8d5a3", fontVariantNumeric: "tabular-nums", borderRight: "3px solid #4a8a2a" }}>
                       {formatPts(entry.total)}
                     </div>
-                    {/* Each day = 2 separate columns: score | pts */}
                     {ROUNDS.map(r => {
                       const sc = getRoundScore(entry.name, r);
                       const rank = getDayRank(entry.name, r);
@@ -443,8 +442,6 @@ ${dayHeaders}
                       const ptsColor = pts === null ? "#2a4a2a" : pts >= 14 ? "#f0d060" : pts >= 10 ? "#a0d060" : pts >= 6 ? "#a0c878" : pts > 0 ? "#6a8a6a" : "#3a5a3a";
                       const scColor = sc === null ? "#2a4a2a" : rank === 1 ? "#f0d060" : "#7ab050";
                       const dayBg = isActive ? "rgba(240,208,96,0.08)" : r % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent";
-                      
-                      
                       return [
                         <div key={r + "_sc"} style={{
                           textAlign: "center", fontSize: 15, fontVariantNumeric: "tabular-nums",
@@ -469,7 +466,6 @@ ${dayHeaders}
               })}
             </div>
 
-            {/* Progress bars */}
             <div style={{ marginTop: 24 }}>
               <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#6ab832", marginBottom: 12 }}>Puntos acumulados</div>
               {leaderboard.slice(0, 8).map((entry, idx) => {
@@ -493,7 +489,6 @@ ${dayHeaders}
               })}
             </div>
 
-            {/* Points reference */}
             <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(106,184,50,0.1)" }}>
               <div style={{ fontSize: 11, color: "#6ab832", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Tabla de puntos</div>
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -580,7 +575,7 @@ ${dayHeaders}
               })}
             </div>
 
-            {/* Day ranking summary */}
+            {/* Ranking del día */}
             <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(42,106,26,0.2)", borderRadius: 10, border: "1px solid rgba(106,184,50,0.2)" }}>
               <div style={{ fontSize: 12, color: "#6ab832", letterSpacing: 1, marginBottom: 10 }}>
                 Ranking Día {activeRound}
@@ -607,6 +602,81 @@ ${dayHeaders}
                     </div>
                   );
                 })}
+
+              {/* ── NUEVO: Promedio y análisis del día ─────────────────── */}
+              {(() => {
+                const stats = getDayStats(activeRound);
+                if (!stats) return null;
+                const avgStr = Number.isInteger(stats.avg) ? stats.avg : stats.avg.toFixed(1);
+                return (
+                  <div style={{ marginTop: 16, borderTop: "1px solid rgba(106,184,50,0.2)", paddingTop: 14 }}>
+                    {/* Promedio */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, color: "#6ab832", textTransform: "uppercase", letterSpacing: 1 }}>Promedio día {activeRound}</div>
+                      <div style={{ fontSize: 22, fontWeight: "bold", color: "#e8d5a3" }}>{avgStr}</div>
+                      <div style={{ fontSize: 11, color: "#4a7a3a" }}>pts · {stats.count} jugadores</div>
+                    </div>
+
+                    {/* Por encima */}
+                    {stats.above.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, color: "#6ab832", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                          ⬆ Por encima (+3 o más)
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {stats.above.map(x => {
+                            const diff = x.score - stats.avg;
+                            const diffStr = diff >= 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+                            return (
+                              <div key={x.name} style={{
+                                background: "rgba(106,184,50,0.15)",
+                                border: "1px solid rgba(106,184,50,0.4)",
+                                borderRadius: 8, padding: "6px 12px",
+                                display: "flex", alignItems: "center", gap: 8,
+                              }}>
+                                <span style={{ fontSize: 13, color: "#c0a860", fontWeight: "bold" }}>{x.name}</span>
+                                <span style={{ fontSize: 14, fontWeight: "bold", color: "#a0d060" }}>{x.score}</span>
+                                <span style={{ fontSize: 11, color: "#6ab832" }}>{diffStr}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Por debajo */}
+                    {stats.below.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 11, color: "#e06060", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                          ⬇ Por debajo (-3 o más)
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {stats.below.map(x => {
+                            const diff = x.score - stats.avg;
+                            const diffStr = diff >= 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+                            return (
+                              <div key={x.name} style={{
+                                background: "rgba(200,60,60,0.1)",
+                                border: "1px solid rgba(200,60,60,0.3)",
+                                borderRadius: 8, padding: "6px 12px",
+                                display: "flex", alignItems: "center", gap: 8,
+                              }}>
+                                <span style={{ fontSize: 13, color: "#c0a860", fontWeight: "bold" }}>{x.name}</span>
+                                <span style={{ fontSize: 14, fontWeight: "bold", color: "#f08080" }}>{x.score}</span>
+                                <span style={{ fontSize: 11, color: "#e06060" }}>{diffStr}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {stats.above.length === 0 && stats.below.length === 0 && (
+                      <div style={{ fontSize: 12, color: "#4a7a3a" }}>Todos los jugadores están dentro del rango ±3 del promedio.</div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -687,4 +757,3 @@ const statBox = {
 };
 const statLabel = { fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#4a8a2a", marginBottom: 4 };
 const statVal = { fontSize: 17, fontWeight: "bold", color: "#e8d5a3" };
-
