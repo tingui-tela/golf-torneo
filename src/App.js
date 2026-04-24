@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 const DEFAULT_PLAYERS = [
   "Garza", "Herny", "Gonzalo G", "Gonzalo Caché",
@@ -90,11 +90,13 @@ export default function GolfTorneo() {
   const [lastSync, setLastSync] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
   const [titleInput, setTitleInput] = useState("");
+  const lastWriteRef = useRef(0);
 
   // ── Guardar en GAS + localStorage cada vez que cambia el estado ──
   useEffect(() => {
     const data = { players, scores, activeRound, tournamentName };
     saveState(data);
+    lastWriteRef.current = Date.now();
     gasWrite(STORAGE_KEY, JSON.stringify(data));
   }, [players, scores, activeRound, tournamentName]);
 
@@ -115,6 +117,8 @@ export default function GolfTorneo() {
     };
     load();
     const iv = setInterval(async () => {
+      // Si hace menos de 15s que este dispositivo escribió, no pisamos
+      if (Date.now() - lastWriteRef.current < 15000) return;
       try {
         const all = await gasRead();
         if (all[STORAGE_KEY]) {
