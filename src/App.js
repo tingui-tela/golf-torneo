@@ -18,7 +18,7 @@ const gasRead = async () => {
     const r = await fetch(GAS_URL, { redirect: "follow" });
     return await r.json();
   } catch { return {}; }
-};
+};A
 
 const gasWrite = async (key, value) => {
   try {
