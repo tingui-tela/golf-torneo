@@ -18,7 +18,7 @@ const gasRead = async () => {
     const r = await fetch(GAS_URL, { redirect: "follow" });
     return await r.json();
   } catch { return {}; }
-};A
+};
 
 const gasWrite = async (key, value) => {
   try {
@@ -94,11 +94,12 @@ export default function GolfTorneo() {
 
   // ── Guardar en GAS + localStorage cada vez que cambia el estado ──
   useEffect(() => {
+    if (loadingData) return; // no escribir nada hasta tener los datos reales de Sheets
     const data = { players, scores, activeRound, tournamentName };
     saveState(data);
     lastWriteRef.current = Date.now();
     gasWrite(STORAGE_KEY, JSON.stringify(data));
-  }, [players, scores, activeRound, tournamentName]);
+  }, [players, scores, activeRound, tournamentName, loadingData]);
 
   // ── Cargar desde GAS al iniciar + poll cada 10 segundos ──────────
   useEffect(() => {
