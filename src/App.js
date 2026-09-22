@@ -119,8 +119,19 @@ const computeHandicaps = (players, scores, baseHdcp) => {
       }
     });
   });
+
+  // Día 6: promedio entre el hándicap que dio la progresión y el hándicap
+  // inicial (día 1) del jugador
+  players.forEach(p => {
+    const day1 = baseHdcp[p] !== undefined ? baseHdcp[p] : 0;
+    const day6Progressive = table[p][6] ?? day1;
+    table[p][6] = (day6Progressive + day1) / 2;
+  });
+
   return table;
 };
+
+const formatHcp = (v) => (v === undefined || v === null ? 0 : Math.round(v));
 
 export default function GolfTorneo() {
   const saved = loadState();
@@ -138,6 +149,7 @@ export default function GolfTorneo() {
   const [loadingData, setLoadingData] = useState(true);
   // baseHdcp: { [playerName]: number } — handicap inicial día 1
   const [baseHdcp, setBaseHdcp] = useState(saved?.baseHdcp || {});
+  const [newPlayerName, setNewPlayerName] = useState("");
   const lastWriteRef = useRef(0);
 
   // ── Save to GAS + localStorage whenever state changes ─────────────
@@ -297,9 +309,73 @@ export default function GolfTorneo() {
     setBaseHdcp(prev => ({ ...prev, [player]: isNaN(num) ? 0 : num }));
   };
 
+  const handleAddPlayer = () => {
+    const name = newPlayerName.trim();
+    if (!name) return;
+    if (players.includes(name)) {
+      alert("Ese jugador ya está en la lista.");
+      return;
+    }
+    setPlayers(prev => [...prev, name]);
+    setNewPlayerName("");
+  };
+
   const hdcpTable = computeHandicaps(players, scores, baseHdcp);
 
   const [pdfStatus, setPdfStatus] = useState("");
+  const [hdcpPdfStatus, setHdcpPdfStatus] = useState("");
+
+  const exportHandicapsPDF = () => {
+    setHdcpPdfStatus("Generando...");
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Habilitá las ventanas emergentes para generar el PDF.");
+      setHdcpPdfStatus("");
+      return;
+    }
+
+    const dayHeaders = ROUNDS.map(r =>
+      `<th style="border-left:3px solid #2a7a2a;background:#1a5a1a;color:#fff;padding:8px 6px;font-size:13px;text-align:center">Día ${r}</th>`
+    ).join('');
+
+    const bodyRows = players.map((p, idx) => {
+      const bg = idx % 2 === 0 ? "#f4faf2" : "#ffffff";
+      const dayCells = ROUNDS.map(r => {
+        const hcp = formatHcp(hdcpTable[p]?.[r] ?? 0);
+        return `<td style="border-left:3px solid #2a7a2a;text-align:center;padding:8px 6px;font-size:16px;font-weight:bold;color:#1a5a1a">${hcp}</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">
+        <td style="padding:8px 10px;font-size:15px;font-weight:bold;color:#222">${p}</td>
+        ${dayCells}
+      </tr>`;
+    }).join('');
+
+    const dateStr = new Date().toLocaleDateString("es-AR");
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Hándicaps - ${tournamentName}</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:24px;color:#222}
+  h1{color:#1a5a1a;margin-bottom:2px}
+  p{color:#666;margin-top:0}
+  table{border-collapse:collapse;width:100%;margin-top:12px}
+  th,td{border-bottom:1px solid #ddd}
+  @media print{ @page{ margin:16mm } }
+</style>
+</head><body>
+<h1>⛳ ${tournamentName}</h1>
+<p>Hándicaps por día · ${dateStr}</p>
+<table><thead><tr>
+<th style="text-align:left;background:#1a5a1a;color:#fff;padding:8px 10px">Jugador</th>${dayHeaders}
+</tr></thead><tbody>${bodyRows}</tbody></table>
+</body></html>`;
+
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => {
+      win.print();
+      setHdcpPdfStatus("");
+    }, 350);
+  };
 
   const exportHTML = () => {
     setPdfStatus("Generando...");
@@ -617,7 +693,7 @@ export default function GolfTorneo() {
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div>
                         <div style={{fontSize:13,color:"#c0a860",fontWeight:"bold"}}>{p}</div>
-                        <div style={{fontSize:10,color:"#4a8a2a"}}>Hcp día {activeRound}: <span style={{color:"#a0d060",fontWeight:"bold"}}>{hcp??0}</span></div>
+                        <div style={{fontSize:10,color:"#4a8a2a"}}>Hcp día {activeRound}: <span style={{color:"#a0d060",fontWeight:"bold"}}>{formatHcp(hcp)}</span></div>
                       </div>
                       {rank!==null&&(
                         <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -718,8 +794,19 @@ export default function GolfTorneo() {
               Ingresá el <strong style={{color:"#f0d060"}}>hándicap inicial (Día 1)</strong> de cada jugador.<br/>
               Los días siguientes se calculan automáticamente según el promedio de cada jornada.
             </div>
-            <div style={{fontSize:11,color:"#4a8a2a",marginBottom:20,padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderRadius:8,border:"1px solid rgba(106,184,50,0.1)"}}>
+            <div style={{fontSize:11,color:"#4a8a2a",marginBottom:16,padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderRadius:8,border:"1px solid rgba(106,184,50,0.1)"}}>
               ⬆ Sobre el promedio (+3 o más) → hcp baja 1 el día siguiente &nbsp;|&nbsp; ⬇ Bajo el promedio (-3 o más) → hcp sube 1
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+              <button onClick={exportHandicapsPDF} style={{
+                display:"flex",alignItems:"center",gap:6,
+                padding:"8px 18px",borderRadius:20,fontSize:13,fontWeight:"bold",
+                cursor:"pointer",letterSpacing:1,
+                background:"linear-gradient(90deg,#1a4a1a,#2a6a2a)",
+                border:"2px solid #6ab832",color:"#e8f5d0",
+                boxShadow:"0 2px 8px rgba(0,0,0,0.3)",
+              }}>📄 {hdcpPdfStatus||"Descargar PDF hándicaps"}</button>
             </div>
 
             <div style={{borderRadius:12,overflow:"hidden",border:"1px solid rgba(106,184,50,0.2)",overflowX:"auto"}}>
@@ -755,7 +842,7 @@ export default function GolfTorneo() {
                               style={{width:44,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(106,184,50,0.4)",borderRadius:6,color:"#f0d060",fontSize:15,fontWeight:"bold",padding:"4px 2px",fontFamily:"Georgia,serif",outline:"none"}}/>
                           ):(
                             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-                              <span style={{fontSize:17,fontWeight:"bold",color:indicator?.color||"#e8d5a3",fontVariantNumeric:"tabular-nums"}}>{hcp}</span>
+                              <span style={{fontSize:17,fontWeight:"bold",color:indicator?.color||"#e8d5a3",fontVariantNumeric:"tabular-nums"}}>{formatHcp(hcp)}</span>
                               {indicator&&(
                                 <span style={{fontSize:9,color:indicator.color,letterSpacing:0.5}}>{indicator.sym} {indicator.tip}</span>
                               )}
@@ -793,6 +880,15 @@ export default function GolfTorneo() {
         {view==="jugadores"&&(
           <div>
             <div style={{fontSize:12,color:"#6ab832",letterSpacing:1,marginBottom:16}}>Tocá el nombre para editarlo</div>
+
+            <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+              <input value={newPlayerName} onChange={e=>setNewPlayerName(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")handleAddPlayer();}}
+                placeholder="Nombre del nuevo jugador"
+                style={{flex:"1 1 200px",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(106,184,50,0.3)",borderRadius:8,color:"#e8d5a3",padding:"8px 12px",fontSize:14,fontFamily:"Georgia,serif",outline:"none"}}/>
+              <button onClick={handleAddPlayer} style={{background:"#2a6a1a",border:"2px solid #6ab832",borderRadius:8,color:"#e8f5d0",padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:"bold",letterSpacing:1}}>+ Agregar</button>
+            </div>
+
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
               {players.map((p,idx)=>(
                 <div key={idx} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(106,184,50,0.15)",borderRadius:10,padding:"12px 14px"}}>
