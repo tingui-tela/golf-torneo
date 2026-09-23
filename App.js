@@ -11,6 +11,12 @@ const DEFAULT_PLAYERS = [
 const ROUNDS = [1, 2, 3, 4, 5, 6];
 const STORAGE_KEY = "golf_torneo_v4";
 
+// Jugadores para los que los puntos del Día 3 y Día 4 valen doble
+const DOUBLE_POINTS_PLAYERS = ["nano", "santi", "willy", "omar"];
+const DOUBLE_POINTS_ROUNDS = [3, 4];
+const isDoublePointsDay = (player, round) =>
+  DOUBLE_POINTS_ROUNDS.includes(round) && DOUBLE_POINTS_PLAYERS.includes(player.trim().toLowerCase());
+
 const LOGO_SA = "data:image/png;base64,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";
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbx8zgst5L8Pv66avrxJP_K03KNMo2akqYFufx3bfX3M2Vg8VJDNlNbxY_ZMb6MfzzZP/exec";
@@ -235,7 +241,8 @@ export default function GolfTorneo() {
     for (let i = 0; i < tiedCount; i++) {
       totalPts += getPointsForRank(startRank + i, round);
     }
-    return totalPts / tiedCount;
+    const pts = totalPts / tiedCount;
+    return isDoublePointsDay(player, round) ? pts * 2 : pts;
   };
 
   const getTotalPoints = (player) =>
@@ -776,11 +783,12 @@ export default function GolfTorneo() {
               {[...players].map(p=>({name:p,sc:getRoundScore(p,activeRound)})).filter(x=>x.sc!==null).sort((a,b)=>b.sc-a.sc)
                 .map((x,i)=>{
                   const rank=i+1;
-                  const pts=getPointsForRank(rank,activeRound);
+                  const basePts=getPointsForRank(rank,activeRound);
+                  const pts=isDoublePointsDay(x.name,activeRound)?basePts*2:basePts;
                   return(
                     <div key={x.name} style={{display:"grid",gridTemplateColumns:"28px 1fr 50px 50px",alignItems:"center",marginBottom:5}}>
                       <span style={{color:rankColor(rank),fontWeight:"bold",fontSize:13}}>{ordinal(rank)}</span>
-                      <span style={{color:rank===1?"#f0d060":"#a0c878",fontSize:13}}>{rank===1?"🏆 ":""}{x.name}</span>
+                      <span style={{color:rank===1?"#f0d060":"#a0c878",fontSize:13}}>{rank===1?"🏆 ":""}{x.name}{isDoublePointsDay(x.name,activeRound)?" ×2":""}</span>
                       <span style={{textAlign:"center",color:"#a0c878",fontSize:13}}>{x.sc}</span>
                       <span style={{textAlign:"center",fontWeight:"bold",color:pts>=14?"#f0d060":pts>=10?"#a0d060":"#6ab832",fontSize:13}}>{formatPts(pts)}</span>
                     </div>
