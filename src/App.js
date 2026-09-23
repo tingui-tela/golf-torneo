@@ -322,116 +322,171 @@ export default function GolfTorneo() {
 
   const hdcpTable = computeHandicaps(players, scores, baseHdcp);
 
+  // Próximo día a jugar: el primer día (2 a 6) sin ningún score cargado.
+  // El día 1 siempre se muestra (hándicap inicial); los demás se ocultan
+  // salvo este, que es "con qué hándicap juego mañana".
+  // Último día jugado (con al menos un score cargado) y el día siguiente,
+  // que es hasta dónde se muestra la tabla de hándicaps: el histórico de
+  // días ya jugados + el próximo día con el que jugarían.
+  const lastPlayedRound = ROUNDS.reduce((acc, r) => players.some(p => scores[`${p}_${r}`] !== undefined) ? r : acc, 0);
+  const nextRound = lastPlayedRound < 6 ? lastPlayedRound + 1 : null;
+  const hcpVisible = (r) => r <= lastPlayedRound + 1;
+
   const [pdfStatus, setPdfStatus] = useState("");
   const [hdcpPdfStatus, setHdcpPdfStatus] = useState("");
 
+  // ── Genera una imagen PNG de una tabla y la comparte (WhatsApp, etc.) ──
+  // o la descarga si el navegador no soporta compartir archivos.
+  const renderTablePNG = ({ title, subtitle, columns, rows, filename }) => {
+    const scale = 2;
+    const padX = 14, padTop = 46, headerH = 34, rowH = 30;
+    const innerW = columns.reduce((s, c) => s + c.width, 0);
+    const totalW = innerW + padX * 2;
+    const totalH = padTop + headerH + rows.length * rowH + 14;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = totalW * scale;
+    canvas.height = totalH * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    ctx.fillStyle = "#1a5a1a";
+    ctx.font = "bold 18px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(title, padX, 22);
+    ctx.fillStyle = "#777";
+    ctx.font = "12px Arial";
+    ctx.fillText(subtitle, padX, 39);
+
+    let y = padTop;
+    ctx.fillStyle = "#1a5a1a";
+    ctx.fillRect(padX, y, innerW, headerH);
+    ctx.font = "bold 12px Arial";
+    ctx.fillStyle = "#ffffff";
+    let x = padX;
+    columns.forEach(col => {
+      ctx.textAlign = col.align || "left";
+      const tx = col.align === "center" ? x + col.width / 2 : x + 6;
+      ctx.fillText(col.label, tx, y + headerH / 2 + 4);
+      x += col.width;
+    });
+    y += headerH;
+
+    rows.forEach((row, ri) => {
+      ctx.fillStyle = ri % 2 === 0 ? "#f4faf2" : "#ffffff";
+      ctx.fillRect(padX, y, innerW, rowH);
+      let x = padX;
+      row.forEach((cell, ci) => {
+        const col = columns[ci];
+        ctx.font = cell.bold ? "bold 13px Arial" : "13px Arial";
+        ctx.fillStyle = cell.color || "#222";
+        ctx.textAlign = col.align || "left";
+        const tx = col.align === "center" ? x + col.width / 2 : x + 6;
+        ctx.fillText(String(cell.text), tx, y + rowH / 2 + 4);
+        x += col.width;
+      });
+      y += rowH;
+    });
+
+    ctx.strokeStyle = "#ccc";
+    ctx.strokeRect(padX, padTop, innerW, headerH + rows.length * rowH);
+
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], filename, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title }).catch(() => {});
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    }, "image/png");
+  };
+
   const exportHandicapsPDF = () => {
     setHdcpPdfStatus("Generando...");
-    const win = window.open("", "_blank");
-    if (!win) {
-      alert("Habilitá las ventanas emergentes para generar el PDF.");
-      setHdcpPdfStatus("");
-      return;
-    }
-
-    const dayHeaders = ROUNDS.map(r =>
-      `<th style="border-left:3px solid #2a7a2a;background:#1a5a1a;color:#fff;padding:8px 6px;font-size:13px;text-align:center">Día ${r}</th>`
-    ).join('');
-
-    const bodyRows = players.map((p, idx) => {
-      const bg = idx % 2 === 0 ? "#f4faf2" : "#ffffff";
-      const dayCells = ROUNDS.map(r => {
-        const hcp = formatHcp(hdcpTable[p]?.[r] ?? 0);
-        return `<td style="border-left:3px solid #2a7a2a;text-align:center;padding:8px 6px;font-size:16px;font-weight:bold;color:#1a5a1a">${hcp}</td>`;
-      }).join('');
-      return `<tr style="background:${bg}">
-        <td style="padding:8px 10px;font-size:15px;font-weight:bold;color:#222">${p}</td>
-        ${dayCells}
-      </tr>`;
-    }).join('');
-
     const dateStr = new Date().toLocaleDateString("es-AR");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Hándicaps - ${tournamentName}</title>
-<style>
-  body{font-family:Arial,sans-serif;margin:24px;color:#222}
-  h1{color:#1a5a1a;margin-bottom:2px}
-  p{color:#666;margin-top:0}
-  table{border-collapse:collapse;width:100%;margin-top:12px}
-  th,td{border-bottom:1px solid #ddd}
-  @media print{ @page{ margin:16mm } }
-</style>
-</head><body>
-<h1>⛳ ${tournamentName}</h1>
-<p>Hándicaps por día · ${dateStr}</p>
-<table><thead><tr>
-<th style="text-align:left;background:#1a5a1a;color:#fff;padding:8px 10px">Jugador</th>${dayHeaders}
-</tr></thead><tbody>${bodyRows}</tbody></table>
-</body></html>`;
 
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => {
-      win.print();
-      setHdcpPdfStatus("");
-    }, 350);
+    const columns = [
+      { label: "Jugador", width: 140, align: "left" },
+      ...ROUNDS.map(r => ({ label: `Día ${r}`, width: 56, align: "center" })),
+    ];
+
+    const rows = players.map(p => {
+      const cells = [{ text: p, bold: true, color: "#222" }];
+      ROUNDS.forEach(r => {
+        if (r === 1) {
+          cells.push({ text: formatHcp(baseHdcp[p] ?? 0), bold: true, color: "#1a5a1a" });
+        } else if (r === nextRound) {
+          cells.push({ text: formatHcp(hdcpTable[p]?.[r] ?? 0), bold: true, color: "#b8860b" });
+        } else if (hcpVisible(r)) {
+          cells.push({ text: formatHcp(hdcpTable[p]?.[r] ?? 0), bold: true, color: "#1a5a1a" });
+        } else {
+          cells.push({ text: "—", color: "#ccc" });
+        }
+      });
+      return cells;
+    });
+
+    renderTablePNG({
+      title: `⛳ ${tournamentName} · Hándicaps`,
+      subtitle: `${dateStr}${nextRound ? ` · Próximo: Día ${nextRound}` : ""}`,
+      columns, rows,
+      filename: "handicaps.png",
+    });
+    setTimeout(() => setHdcpPdfStatus(""), 400);
   };
 
   const exportHTML = () => {
     setPdfStatus("Generando...");
-    const rows = [...players]
+    const dateStr = new Date().toLocaleDateString("es-AR");
+    const sorted = [...players]
       .map(p => ({ name: p, total: getTotalPoints(p) }))
       .sort((a, b) => b.total - a.total);
 
-    const dayHeaders = ROUNDS.map(r =>
-      `<th colspan="2" style="border-left:3px solid #2a7a2a;background:#1a5a1a;color:#fff;padding:6px 4px;font-size:12px;text-align:center">Día ${r}<br/><span style="font-size:9px;opacity:0.8">score | pts</span></th>`
-    ).join('');
+    const columns = [
+      { label: "#", width: 28, align: "center" },
+      { label: "Jugador", width: 130, align: "left" },
+      { label: "Total", width: 54, align: "center" },
+      ...ROUNDS.flatMap(r => [
+        { label: `D${r} sc`, width: 40, align: "center" },
+        { label: `D${r} pts`, width: 40, align: "center" },
+      ]),
+    ];
 
-    const bodyRows = rows.map((entry, idx) => {
+    const rows = sorted.map((entry, idx) => {
       const isLeader = idx === 0;
-      const bg = isLeader ? "#fffbe6" : idx % 2 === 0 ? "#f4faf2" : "#ffffff";
-      const dayCells = ROUNDS.map(r => {
-        const v = scores[`${entry.name}_${r}`];
-        const sc = v !== undefined && v !== "" ? Number(v) : null;
-        const all = players.map(x => { const vx = scores[`${x}_${r}`]; return vx !== undefined && vx !== "" ? Number(vx) : null; }).filter(s => s !== null).sort((a,b)=>b-a);
-        const rank = sc === null ? null : all.indexOf(sc) + 1;
-        const tbl = r === 6 ? POINTS_TABLE_DOUBLE : POINTS_TABLE;
-        let pts = null;
-        if (rank !== null) {
-          const cnt = all.filter(s => s === sc).length;
-          let t = 0; for (let i = 0; i < cnt; i++) t += (tbl[rank-1+i] ?? 0);
-          pts = t/cnt;
-        }
-        const scStr = sc === null ? "—" : sc;
-        const ptsStr = pts === null ? "—" : (Number.isInteger(pts) ? pts : pts.toFixed(1));
-        const ptsColor = pts === null ? "#aaa" : pts >= 14 ? "#b8860b" : pts >= 8 ? "#1a6a1a" : "#555";
-        return `<td style="border-left:3px solid #2a7a2a;text-align:center;padding:5px 3px;font-size:13px;color:#333">${scStr}</td><td style="text-align:center;padding:5px 3px;font-size:13px;font-weight:bold;color:${ptsColor}">${ptsStr}</td>`;
-      }).join('');
-      const totalStr = Number.isInteger(entry.total) ? entry.total : entry.total.toFixed(1);
-      return `<tr style="background:${bg}">
-        <td style="text-align:center;padding:6px 4px;font-size:13px;color:#555">${idx+1}</td>
-        <td style="padding:6px 6px;font-size:14px;font-weight:${isLeader?"bold":"normal"};color:${isLeader?"#7a5a00":"#222"}">${isLeader?"🏆 ":""}${entry.name}</td>
-        <td style="text-align:center;padding:6px 4px;font-size:15px;font-weight:bold;color:${isLeader?"#b8860b":"#1a5a1a"};border-left:3px solid #2a7a2a">${totalStr}</td>
-        ${dayCells}
-      </tr>`;
-    }).join('');
+      const cells = [
+        { text: idx + 1, color: "#555" },
+        { text: (isLeader ? "🏆 " : "") + entry.name, bold: isLeader, color: isLeader ? "#7a5a00" : "#222" },
+        { text: formatPts(entry.total), bold: true, color: isLeader ? "#b8860b" : "#1a5a1a" },
+      ];
+      ROUNDS.forEach(r => {
+        const sc = getRoundScore(entry.name, r);
+        const pts = getDayPoints(entry.name, r);
+        cells.push({ text: sc === null ? "—" : sc, color: "#333" });
+        cells.push({
+          text: pts === null ? "—" : formatPts(pts),
+          bold: true,
+          color: pts === null ? "#aaa" : pts >= 14 ? "#b8860b" : pts >= 8 ? "#1a6a1a" : "#555",
+        });
+      });
+      return cells;
+    });
 
-    const dateStr = new Date().toLocaleDateString("es-AR");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${tournamentName}</title>
-<style>body{font-family:Arial,sans-serif;margin:20px}h1{color:#1a5a1a}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #ddd}</style>
-</head><body><h1>⛳ ${tournamentName}</h1><p>${dateStr}</p><table><thead><tr>
-<th style="background:#1a5a1a;color:#fff">#</th><th style="text-align:left;background:#1a5a1a;color:#fff">Jugador</th>
-<th style="background:#1a5a1a;color:#fff;border-left:3px solid #4aaa4a">Total</th>${dayHeaders}</tr></thead>
-<tbody>${bodyRows}</tbody></table></body></html>`;
-
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "torneo_resultados.html";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-    setPdfStatus("✓ Descargado");
-    setTimeout(() => setPdfStatus(""), 3000);
+    renderTablePNG({
+      title: `⛳ ${tournamentName}`,
+      subtitle: dateStr,
+      columns, rows,
+      filename: "tabla_torneo.png",
+    });
+    setTimeout(() => setPdfStatus(""), 400);
   };
 
   const completedRounds = ROUNDS.filter(r =>
@@ -543,7 +598,7 @@ export default function GolfTorneo() {
                 background:"linear-gradient(90deg,#1a4a1a,#2a6a2a)",
                 border:"2px solid #6ab832",color:"#e8f5d0",
                 boxShadow:"0 2px 8px rgba(0,0,0,0.3)",
-              }}>📄 {pdfStatus||"Compartir tabla"}</button>
+              }}>📲 {pdfStatus||"Compartir tabla"}</button>
             </div>
 
             <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
@@ -806,7 +861,7 @@ export default function GolfTorneo() {
                 background:"linear-gradient(90deg,#1a4a1a,#2a6a2a)",
                 border:"2px solid #6ab832",color:"#e8f5d0",
                 boxShadow:"0 2px 8px rgba(0,0,0,0.3)",
-              }}>📄 {hdcpPdfStatus||"Descargar PDF hándicaps"}</button>
+              }}>📲 {hdcpPdfStatus||"Compartir hándicaps"}</button>
             </div>
 
             <div style={{borderRadius:12,overflow:"hidden",border:"1px solid rgba(106,184,50,0.2)",overflowX:"auto"}}>
@@ -814,7 +869,7 @@ export default function GolfTorneo() {
               <div style={{display:"grid",gridTemplateColumns:"minmax(100px,1fr) repeat(6,60px)",background:"rgba(42,106,26,0.5)",padding:"10px 12px",fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"#6ab832",fontWeight:"bold",gap:0,borderBottom:"1px solid rgba(106,184,50,0.3)",minWidth:460}}>
                 <div>Jugador</div>
                 {ROUNDS.map(r=>(
-                  <div key={r} style={{textAlign:"center",color:r===1?"#f0d060":"#6ab832"}}>Día {r}</div>
+                  <div key={r} style={{textAlign:"center",color:r===1||r===nextRound?"#f0d060":"#6ab832"}}>Día {r}</div>
                 ))}
               </div>
 
@@ -824,6 +879,8 @@ export default function GolfTorneo() {
                     <div style={{fontSize:14,color:"#c0a860",fontWeight:"bold",paddingRight:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p}</div>
                     {ROUNDS.map(r=>{
                       const isDay1=r===1;
+                      const isNext=r===nextRound;
+                      const isVisible=hcpVisible(r);
                       const hcp=hdcpTable[p]?.[r]??0;
                       // figure out why it changed
                       let indicator=null;
@@ -840,13 +897,15 @@ export default function GolfTorneo() {
                             <input type="number" inputMode="numeric" value={baseHdcp[p]??0}
                               onChange={e=>handleBaseHdcp(p,e.target.value)}
                               style={{width:44,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(106,184,50,0.4)",borderRadius:6,color:"#f0d060",fontSize:15,fontWeight:"bold",padding:"4px 2px",fontFamily:"Georgia,serif",outline:"none"}}/>
-                          ):(
+                          ):isVisible?(
                             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-                              <span style={{fontSize:17,fontWeight:"bold",color:indicator?.color||"#e8d5a3",fontVariantNumeric:"tabular-nums"}}>{formatHcp(hcp)}</span>
+                              <span style={{fontSize:17,fontWeight:"bold",color:indicator?.color||(isNext?"#f0d060":"#e8d5a3"),fontVariantNumeric:"tabular-nums"}}>{formatHcp(hcp)}</span>
                               {indicator&&(
                                 <span style={{fontSize:9,color:indicator.color,letterSpacing:0.5}}>{indicator.sym} {indicator.tip}</span>
                               )}
                             </div>
+                          ):(
+                            <span style={{fontSize:15,color:"#2a4a2a"}}>—</span>
                           )}
                         </div>
                       );
