@@ -449,6 +449,7 @@ export default function GolfTorneo() {
 
   const [pdfStatus, setPdfStatus] = useState("");
   const [hdcpPdfStatus, setHdcpPdfStatus] = useState("");
+  const [salidasPdfStatus, setSalidasPdfStatus] = useState("");
 
   // ── Genera una imagen PNG de una tabla y la comparte (WhatsApp, etc.) ──
   // o la descarga si el navegador no soporta compartir archivos.
@@ -602,6 +603,118 @@ export default function GolfTorneo() {
       filename: "tabla_torneo.png",
     });
     setTimeout(() => setPdfStatus(""), 400);
+  };
+
+  // ── Comparte las salidas del día activo como imagen (mismo mecanismo que tabla/hándicaps) ──
+  const exportSalidasPNG = () => {
+    setSalidasPdfStatus("Generando...");
+    const round = activeRound;
+    const lines = salidas[round] || [];
+    const info = DAY_INFO[round];
+
+    const scale = 2;
+    const width = 480;
+    const padX = 18;
+    const contentW = width - padX * 2 - 16;
+
+    // Canvas auxiliar solo para medir texto y poder armar los saltos de línea
+    const measureCanvas = document.createElement("canvas");
+    const mctx = measureCanvas.getContext("2d");
+
+    const wrapText = (ctx, text, maxWidth) => {
+      const words = text.split(" ");
+      const out = [];
+      let current = "";
+      words.forEach(w => {
+        const test = current ? current + " " + w : w;
+        if (ctx.measureText(test).width > maxWidth && current) {
+          out.push(current);
+          current = w;
+        } else {
+          current = test;
+        }
+      });
+      if (current) out.push(current);
+      return out.length ? out : [""];
+    };
+
+    mctx.font = "14px Arial";
+    const groupBlocks = lines.map((line, li) => {
+      const names = [0, 1, 2, 3]
+        .filter(si => (line[si] || "").trim() !== "")
+        .map(si => numberToPlayer(line[si]) || `N° ${line[si]} (sin asignar)`);
+      const text = names.join("  ·  ");
+      const wrapped = wrapText(mctx, text, contentW);
+      return { label: `Salida ${li + 1}`, wrapped };
+    });
+
+    const titleH = 30;
+    const subtitleH = info ? 20 : 0;
+    const topPad = 16 + titleH + subtitleH + 8;
+    const groupLabelH = 18;
+    const lineH = 18;
+    const groupGap = 12;
+    let totalH = topPad;
+    groupBlocks.forEach(g => { totalH += groupLabelH + g.wrapped.length * lineH + groupGap; });
+    totalH += 10;
+    if (groupBlocks.length === 0) totalH += 24;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width * scale;
+    canvas.height = totalH * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, totalH);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#1a5a1a";
+    ctx.font = "bold 18px Arial";
+    ctx.fillText(`⛳ ${tournamentName} · Salidas Día ${round}`, padX, 24);
+
+    if (info) {
+      ctx.fillStyle = "#777";
+      ctx.font = "12px Arial";
+      ctx.fillText(`${info.date} · ${info.time} · ${info.course}`, padX, 24 + 18);
+    }
+
+    let y = topPad;
+    if (groupBlocks.length === 0) {
+      ctx.fillStyle = "#999";
+      ctx.font = "13px Arial";
+      ctx.fillText("Todavía no cargaste las salidas de este día.", padX, y + 14);
+    } else {
+      groupBlocks.forEach(g => {
+        ctx.fillStyle = "#6ab832";
+        ctx.font = "bold 12px Arial";
+        ctx.fillText(g.label.toUpperCase(), padX, y + 13);
+        y += groupLabelH;
+        ctx.fillStyle = "#222";
+        ctx.font = "14px Arial";
+        g.wrapped.forEach(wline => {
+          ctx.fillText(wline, padX, y + 13);
+          y += lineH;
+        });
+        y += groupGap;
+      });
+    }
+
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], `salidas_dia${round}.png`, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: `Salidas Día ${round}` }).catch(() => {});
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `salidas_dia${round}.png`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    }, "image/png");
+
+    setTimeout(() => setSalidasPdfStatus(""), 400);
   };
 
   const completedRounds = ROUNDS.filter(r =>
@@ -1138,6 +1251,17 @@ export default function GolfTorneo() {
 
             <div style={{fontSize:12,color:"#6ab832",letterSpacing:1,marginBottom:16}}>
               Cargá los números de cada salida del Día {activeRound}. Se reemplazan solos por el nombre según el N° que le pusiste a cada jugador en "Jugadores".
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+              <button onClick={exportSalidasPNG} style={{
+                display:"flex",alignItems:"center",gap:6,
+                padding:"8px 18px",borderRadius:20,fontSize:13,fontWeight:"bold",
+                cursor:"pointer",letterSpacing:1,
+                background:"linear-gradient(90deg,#1a4a1a,#2a6a2a)",
+                border:"2px solid #6ab832",color:"#e8f5d0",
+                boxShadow:"0 2px 8px rgba(0,0,0,0.3)",
+              }}>📲 {salidasPdfStatus||`Compartir salidas Día ${activeRound}`}</button>
             </div>
 
             {(salidas[activeRound]||[]).map((line,li)=>(
