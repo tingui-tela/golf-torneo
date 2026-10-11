@@ -21,6 +21,16 @@ const DEFAULT_SALIDAS = {
   5: [["5","7","19",""], ["3","8","10","11"], ["1","9","15","17"], ["4","6","12","13"], ["2","16","14","18"]],
 };
 
+// Fecha, horario de salida y cancha de cada día del torneo
+const DAY_INFO = {
+  1: { date: "22/10", time: "12:40 p.m.", course: "Dye Fore" },
+  2: { date: "23/10", time: "12:51 p.m.", course: "Diente de Perro" },
+  3: { date: "25/10", time: "12:40 p.m.", course: "Dye Fore" },
+  4: { date: "26/10", time: "12:33 p.m.", course: "Diente de Perro" },
+  5: { date: "28/10", time: "12:40 p.m.", course: "Dye Fore" },
+  6: { date: "29/10", time: "12:15 p.m.", course: "Diente de Perro" },
+};
+
 // Jugadores para los que los puntos del Día 3 y Día 4 valen doble
 const DOUBLE_POINTS_PLAYERS = ["nano", "santi", "willy", "omar"];
 const DOUBLE_POINTS_ROUNDS = [3, 4];
@@ -197,7 +207,7 @@ export default function GolfTorneo() {
           if (d.baseHdcp) setBaseHdcp(d.baseHdcp);
           if (d.playerNumbers) setPlayerNumbers(d.playerNumbers);
           if (d.bets) setBets(d.bets);
-          if (d.salidas) setSalidas(d.salidas);
+          if (d.salidas && Object.keys(d.salidas).length > 0) setSalidas(d.salidas);
         }
       } catch {}
       setLoadingData(false);
@@ -215,7 +225,7 @@ export default function GolfTorneo() {
           if (d.baseHdcp) setBaseHdcp(d.baseHdcp);
           if (d.playerNumbers) setPlayerNumbers(d.playerNumbers);
           if (d.bets) setBets(d.bets);
-          if (d.salidas) setSalidas(d.salidas);
+          if (d.salidas && Object.keys(d.salidas).length > 0) setSalidas(d.salidas);
         }
         setLastSync(new Date().toLocaleTimeString("es-AR"));
       } catch {}
@@ -1108,6 +1118,23 @@ export default function GolfTorneo() {
                 }}>{r}</button>
               ))}
             </div>
+
+            {DAY_INFO[activeRound]&&(
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,padding:"10px 14px",background:"rgba(42,106,26,0.2)",borderRadius:10,border:"1px solid rgba(106,184,50,0.25)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>📅</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].date}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>⏰</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].time}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>⛳</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].course}</span>
+                </div>
+              </div>
+            )}
 
             <div style={{fontSize:12,color:"#6ab832",letterSpacing:1,marginBottom:16}}>
               Cargá los números de cada salida del Día {activeRound}. Se reemplazan solos por el nombre según el N° que le pusiste a cada jugador en "Jugadores".
