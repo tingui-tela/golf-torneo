@@ -11,6 +11,26 @@ const DEFAULT_PLAYERS = [
 const ROUNDS = [1, 2, 3, 4, 5, 6];
 const STORAGE_KEY = "golf_torneo_v4";
 
+// Salidas cargadas por Tingui (número de jugador, no nombre) para Días 1 a 5.
+// Las líneas con solo 3 números quedan con el 4to casillero vacío.
+const DEFAULT_SALIDAS = {
+  1: [["9","10","12",""], ["2","3","13","15"], ["5","6","11","14"], ["1","4","7","8"]],
+  2: [["3","4","14",""], ["7","11","12","15"], ["5","8","9","13"], ["1","2","6","10"]],
+  3: [["10","13","18",""], ["8","14","15","19"], ["6","7","16","17"], ["2","4","9","11"], ["1","3","5","12"]],
+  4: [["7","9","14",""], ["4","5","10","15"], ["2","8","12","17"], ["1","11","13","16"], ["3","18","6","19"]],
+  5: [["5","7","19",""], ["3","8","10","11"], ["1","9","15","17"], ["4","6","12","13"], ["2","16","14","18"]],
+};
+
+// Fecha, horario de salida y cancha de cada día del torneo
+const DAY_INFO = {
+  1: { date: "22/10", time: "12:40 p.m.", course: "Dye Fore" },
+  2: { date: "23/10", time: "12:51 p.m.", course: "Diente de Perro" },
+  3: { date: "25/10", time: "12:40 p.m.", course: "Dye Fore" },
+  4: { date: "26/10", time: "12:33 p.m.", course: "Diente de Perro" },
+  5: { date: "28/10", time: "12:40 p.m.", course: "Dye Fore" },
+  6: { date: "29/10", time: "12:15 p.m.", course: "Diente de Perro" },
+};
+
 // Jugadores para los que los puntos del Día 3 y Día 4 valen doble
 const DOUBLE_POINTS_PLAYERS = ["nano", "santi", "willy", "omar"];
 const DOUBLE_POINTS_ROUNDS = [3, 4];
@@ -155,17 +175,23 @@ export default function GolfTorneo() {
   const [loadingData, setLoadingData] = useState(true);
   // baseHdcp: { [playerName]: number } — handicap inicial día 1
   const [baseHdcp, setBaseHdcp] = useState(saved?.baseHdcp || {});
+  // playerNumbers: { [playerName]: string|number } — número identificador que carga Tingui
+  const [playerNumbers, setPlayerNumbers] = useState(saved?.playerNumbers || {});
+  // bets: { [`${player}_${round}`]: number } — plata que ganó (+) o perdió (-) cada día
+  const [bets, setBets] = useState(saved?.bets || {});
+  // salidas: { [round]: [ [n1,n2,n3,n4], ... ] } — líneas de 4 números por día
+  const [salidas, setSalidas] = useState(saved?.salidas || DEFAULT_SALIDAS);
   const [newPlayerName, setNewPlayerName] = useState("");
   const lastWriteRef = useRef(0);
 
   // ── Save to GAS + localStorage whenever state changes ─────────────
   useEffect(() => {
     if (loadingData) return;
-    const data = { players, scores, activeRound, tournamentName, baseHdcp };
+    const data = { players, scores, activeRound, tournamentName, baseHdcp, playerNumbers, bets, salidas };
     saveState(data);
     lastWriteRef.current = Date.now();
     gasWrite(STORAGE_KEY, JSON.stringify(data));
-  }, [players, scores, activeRound, tournamentName, baseHdcp, loadingData]);
+  }, [players, scores, activeRound, tournamentName, baseHdcp, playerNumbers, bets, salidas, loadingData]);
 
   // ── Load from GAS on mount + poll every 10s ───────────────────────
   useEffect(() => {
@@ -179,6 +205,9 @@ export default function GolfTorneo() {
           if (d.activeRound) setActiveRound(d.activeRound);
           if (d.tournamentName) setTournamentName(d.tournamentName);
           if (d.baseHdcp) setBaseHdcp(d.baseHdcp);
+          if (d.playerNumbers) setPlayerNumbers(d.playerNumbers);
+          if (d.bets) setBets(d.bets);
+          if (d.salidas) setSalidas(d.salidas);
         }
       } catch {}
       setLoadingData(false);
@@ -194,6 +223,9 @@ export default function GolfTorneo() {
           if (d.players) setPlayers(d.players);
           if (d.tournamentName) setTournamentName(d.tournamentName);
           if (d.baseHdcp) setBaseHdcp(d.baseHdcp);
+          if (d.playerNumbers) setPlayerNumbers(d.playerNumbers);
+          if (d.bets) setBets(d.bets);
+          if (d.salidas) setSalidas(d.salidas);
         }
         setLastSync(new Date().toLocaleTimeString("es-AR"));
       } catch {}
@@ -307,6 +339,26 @@ export default function GolfTorneo() {
         }
         return next;
       });
+      // migrate playerNumbers key
+      setPlayerNumbers(prev => {
+        const next = { ...prev };
+        if (next[oldName] !== undefined) {
+          next[newName] = next[oldName];
+          delete next[oldName];
+        }
+        return next;
+      });
+      // migrate bets keys
+      setBets(prev => {
+        const next = { ...prev };
+        Object.entries(prev).forEach(([k, v]) => {
+          if (k.startsWith(`${oldName}_`)) {
+            next[k.replace(`${oldName}_`, `${newName}_`)] = v;
+            delete next[k];
+          }
+        });
+        return next;
+      });
     }
     setEditingPlayer(null);
   };
@@ -314,6 +366,62 @@ export default function GolfTorneo() {
   const handleBaseHdcp = (player, value) => {
     const num = value === "" ? 0 : parseInt(value, 10);
     setBaseHdcp(prev => ({ ...prev, [player]: isNaN(num) ? 0 : num }));
+  };
+
+  const handlePlayerNumber = (player, value) => {
+    setPlayerNumbers(prev => ({ ...prev, [player]: value }));
+  };
+
+  const handleBetInput = (player, round, value) => {
+    const key = `${player}_${round}`;
+    setBets(prev => {
+      const next = { ...prev };
+      if (value === "" || isNaN(Number(value))) delete next[key];
+      else next[key] = Number(value);
+      return next;
+    });
+  };
+
+  const getBetTotal = (player) =>
+    ROUNDS.reduce((sum, r) => sum + (Number(bets[`${player}_${r}`]) || 0), 0);
+
+  // ── Salidas: resuelve un número cargado al nombre del jugador con ese N° ──
+  const numberToPlayer = (num) => {
+    if (num === undefined || num === null || String(num).trim() === "") return null;
+    const found = players.find(p => String(playerNumbers[p] ?? "").trim() === String(num).trim());
+    return found || null;
+  };
+
+  const handleAddSalidaLine = (round) => {
+    setSalidas(prev => {
+      const next = { ...prev };
+      const arr = next[round] ? [...next[round]] : [];
+      arr.push(["", "", "", ""]);
+      next[round] = arr;
+      return next;
+    });
+  };
+
+  const handleUpdateSalidaSlot = (round, lineIdx, slotIdx, value) => {
+    setSalidas(prev => {
+      const next = { ...prev };
+      const arr = next[round] ? [...next[round]] : [];
+      const line = arr[lineIdx] ? [...arr[lineIdx]] : ["", "", "", ""];
+      line[slotIdx] = value;
+      arr[lineIdx] = line;
+      next[round] = arr;
+      return next;
+    });
+  };
+
+  const handleRemoveSalidaLine = (round, lineIdx) => {
+    setSalidas(prev => {
+      const next = { ...prev };
+      const arr = next[round] ? [...next[round]] : [];
+      arr.splice(lineIdx, 1);
+      next[round] = arr;
+      return next;
+    });
   };
 
   const handleAddPlayer = () => {
@@ -565,6 +673,8 @@ export default function GolfTorneo() {
               {id:"cargar",label:"✏️ Scores"},
               {id:"handicaps",label:"🎯 Hándicaps"},
               {id:"jugadores",label:"👥 Jugadores"},
+              {id:"apuestas",label:"💰 Apuestas"},
+              {id:"salidas",label:"🚗 Salidas"},
             ].map(v=>(
               <button key={v.id} onClick={()=>setView(v.id)} style={{
                 padding:"6px 16px",borderRadius:20,fontSize:12,fontWeight:"bold",
@@ -943,6 +1053,125 @@ export default function GolfTorneo() {
           </div>
         )}
 
+        {/* ═══ APUESTAS ═══════════════════════════════════════════════ */}
+        {view==="apuestas"&&(
+          <div>
+            <div style={{fontSize:12,color:"#6ab832",letterSpacing:1,marginBottom:16}}>
+              Cargá lo que ganó (+) o perdió (−) cada uno por día. Se ordena solo de mayor a menor total; los que están en cero quedan al final.
+            </div>
+
+            <div style={{borderRadius:12,overflow:"hidden",border:"1px solid rgba(106,184,50,0.2)",overflowX:"auto"}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(110px,1fr) 70px repeat(6,66px)",background:"rgba(42,106,26,0.5)",padding:"10px 8px",fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"#6ab832",fontWeight:"bold",gap:0,borderBottom:"1px solid rgba(106,184,50,0.3)",minWidth:560}}>
+                <div>Jugador</div>
+                <div style={{textAlign:"center",borderLeft:"3px solid #4a8a2a"}}>Total</div>
+                {ROUNDS.map(r=>(
+                  <div key={r} style={{textAlign:"center",borderLeft:"1px solid rgba(106,184,50,0.2)"}}>Día {r}</div>
+                ))}
+              </div>
+
+              {[...players]
+                .map(p=>({name:p,total:getBetTotal(p)}))
+                .sort((a,b)=>{
+                  const aZero=a.total===0, bZero=b.total===0;
+                  if(aZero&&!bZero)return 1;
+                  if(!aZero&&bZero)return -1;
+                  if(aZero&&bZero)return 0;
+                  return b.total-a.total;
+                })
+                .map((entry,idx)=>{
+                  const total=entry.total;
+                  const totalColor=total>0?"#6ab832":total<0?"#e06060":"#4a7a3a";
+                  return(
+                    <div key={entry.name} style={{display:"grid",gridTemplateColumns:"minmax(110px,1fr) 70px repeat(6,66px)",padding:"8px 8px",gap:0,alignItems:"center",background:idx%2===0?"rgba(255,255,255,0.02)":"transparent",borderBottom:"1px solid rgba(106,184,50,0.08)",minWidth:560}}>
+                      <div style={{fontSize:14,color:"#c0a860",fontWeight:"bold",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:6}}>{entry.name}</div>
+                      <div style={{textAlign:"center",fontWeight:"bold",fontSize:16,color:totalColor,borderLeft:"3px solid #4a8a2a",fontVariantNumeric:"tabular-nums"}}>{total}</div>
+                      {ROUNDS.map(r=>{
+                        const key=`${entry.name}_${r}`;
+                        const val=bets[key]!==undefined?String(bets[key]):"";
+                        return(
+                          <div key={r} style={{textAlign:"center",borderLeft:"1px solid rgba(106,184,50,0.1)"}}>
+                            <input type="number" inputMode="numeric" value={val} placeholder="0"
+                              onChange={e=>handleBetInput(entry.name,r,e.target.value)}
+                              style={{width:52,textAlign:"center",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(106,184,50,0.3)",borderRadius:6,color:"#e8d5a3",fontSize:13,fontWeight:"bold",padding:"4px 2px",fontFamily:"Georgia,serif",outline:"none"}}/>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ SALIDAS ════════════════════════════════════════════════ */}
+        {view==="salidas"&&(
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:12,color:"#6ab832",letterSpacing:2,textTransform:"uppercase"}}>Día:</span>
+              {ROUNDS.map(r=>(
+                <button key={r} onClick={()=>setActiveRound(r)} style={{
+                  width:40,height:40,borderRadius:"50%",
+                  border:activeRound===r?"2px solid #6ab832":"2px solid rgba(106,184,50,0.3)",
+                  background:activeRound===r?"#2a6a1a":"transparent",
+                  color:activeRound===r?"#e8f5d0":"#6ab832",
+                  fontWeight:"bold",fontSize:15,cursor:"pointer",
+                }}>{r}</button>
+              ))}
+            </div>
+
+            {DAY_INFO[activeRound]&&(
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,padding:"10px 14px",background:"rgba(42,106,26,0.2)",borderRadius:10,border:"1px solid rgba(106,184,50,0.25)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>📅</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].date}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>⏰</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].time}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:16}}>⛳</span>
+                  <span style={{fontSize:14,color:"#e8d5a3",fontWeight:"bold"}}>{DAY_INFO[activeRound].course}</span>
+                </div>
+              </div>
+            )}
+
+            <div style={{fontSize:12,color:"#6ab832",letterSpacing:1,marginBottom:16}}>
+              Cargá los números de cada salida del Día {activeRound}. Se reemplazan solos por el nombre según el N° que le pusiste a cada jugador en "Jugadores".
+            </div>
+
+            {(salidas[activeRound]||[]).map((line,li)=>(
+              <div key={li} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(106,184,50,0.15)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:11,color:"#6ab832",letterSpacing:1,textTransform:"uppercase"}}>Salida {li+1}</span>
+                  <button onClick={()=>handleRemoveSalidaLine(activeRound,li)} style={{background:"transparent",border:"1px solid rgba(200,60,60,0.4)",borderRadius:6,color:"#e06060",padding:"2px 8px",cursor:"pointer",fontSize:12}}>✕</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8}}>
+                  {[0,1,2,3].map(si=>{
+                    const numVal=line[si]||"";
+                    const name=numberToPlayer(numVal);
+                    return(
+                      <div key={si} style={{display:"flex",flexDirection:"column",gap:4}}>
+                        <input type="text" inputMode="numeric" value={numVal} placeholder={`N° ${si+1}`}
+                          onChange={e=>handleUpdateSalidaSlot(activeRound,li,si,e.target.value)}
+                          style={{width:"100%",boxSizing:"border-box",textAlign:"center",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(106,184,50,0.3)",borderRadius:6,color:"#e8d5a3",fontSize:15,fontWeight:"bold",padding:"6px 4px",fontFamily:"Georgia,serif",outline:"none"}}/>
+                        <div style={{fontSize:12,textAlign:"center",color:numVal?(name?"#a0d060":"#e06060"):"#4a7a3a",minHeight:16}}>
+                          {numVal?(name||"sin asignar"):""}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <button onClick={()=>handleAddSalidaLine(activeRound)} style={{
+              background:"#2a6a1a",border:"2px solid #6ab832",borderRadius:8,color:"#e8f5d0",
+              padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:"bold",letterSpacing:1,
+            }}>+ Agregar salida</button>
+          </div>
+        )}
+
         {/* ═══ JUGADORES ══════════════════════════════════════════════ */}
         {view==="jugadores"&&(
           <div>
@@ -972,6 +1201,13 @@ export default function GolfTorneo() {
                       <div>
                         <div style={{fontSize:12,color:"#4a7a3a",marginBottom:2}}>#{idx+1}</div>
                         <div style={{fontSize:15,color:"#c0a860",fontWeight:"bold"}}>{p}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,margin:"4px 0"}}>
+                          <span style={{fontSize:10,color:"#4a8a2a"}}>N°:</span>
+                          <input type="text" inputMode="numeric" value={playerNumbers[p]??""}
+                            onChange={e=>handlePlayerNumber(p,e.target.value)}
+                            placeholder="—"
+                            style={{width:40,textAlign:"center",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(106,184,50,0.4)",borderRadius:6,color:"#f0d060",fontSize:13,fontWeight:"bold",padding:"2px 4px",fontFamily:"Georgia,serif",outline:"none"}}/>
+                        </div>
                         <div style={{fontSize:10,color:"#4a8a2a"}}>Hcp día 1: {baseHdcp[p]??0}</div>
                       </div>
                       <button onClick={()=>handlePlayerEdit(idx)} style={{background:"transparent",border:"1px solid rgba(106,184,50,0.3)",borderRadius:6,color:"#6ab832",padding:"4px 8px",cursor:"pointer",fontSize:12}}>✎</button>
