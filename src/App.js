@@ -3,8 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 const DEFAULT_PLAYERS = [
   "Garza", "Herny", "Gonzalo G", "Gonzalo Caché",
   "Tanque", "Tommy", "Mafa", "Tingui",
-  "Maxi", "Grazu", "Guille", "Lele",
-  "Metra", "Marito", "Xavier", "Jugador X",
+  "Maxi", " X",4
   "Luis", "Alberto"
 ];
 
